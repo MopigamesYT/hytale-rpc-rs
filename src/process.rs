@@ -2,7 +2,8 @@
 
 use sysinfo::System;
 
-use crate::config::{DISCORD_PROCESS_NAMES, HYTALE_PROCESS_NAMES};
+// Imports removed since they are used fully qualified in methods or not needed
+
 
 /// Process detector for monitoring Hytale and Discord
 pub struct ProcessDetector {
@@ -22,14 +23,19 @@ impl ProcessDetector {
         self.system.refresh_processes(sysinfo::ProcessesToUpdate::All);
     }
 
-    /// Check if Hytale is running
-    pub fn is_hytale_running(&self) -> bool {
-        self.is_process_running(HYTALE_PROCESS_NAMES)
+    /// Check if Hytale Game Client is running
+    pub fn is_game_running(&self) -> bool {
+        self.is_process_running(crate::config::HYTALE_GAME_PROCESSES)
+    }
+
+    /// Check if Hytale Launcher is running
+    pub fn is_launcher_running(&self) -> bool {
+        self.is_process_running(crate::config::HYTALE_LAUNCHER_PROCESSES)
     }
 
     /// Check if Discord is running
     pub fn is_discord_running(&self) -> bool {
-        self.is_process_running(DISCORD_PROCESS_NAMES)
+        self.is_process_running(crate::config::DISCORD_PROCESS_NAMES)
     }
 
     /// Check if any of the given process names are running

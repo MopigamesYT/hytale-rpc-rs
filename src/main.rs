@@ -27,6 +27,7 @@ struct App {
     discord_rpc: DiscordRpc,
     tray: Option<SystemTray>,
     hytale_was_running: bool,
+    launcher_was_running: bool,
     discord_was_running: bool,
 }
 
@@ -38,6 +39,7 @@ impl App {
             discord_rpc: DiscordRpc::new(),
             tray: None,
             hytale_was_running: false,
+            launcher_was_running: false,
             discord_was_running: false,
         })
     }
@@ -99,24 +101,36 @@ impl App {
             // Refresh process list
             self.process_detector.refresh();
 
-            let hytale_running = self.process_detector.is_hytale_running();
+            let game_running = self.process_detector.is_game_running();
+            let launcher_running = self.process_detector.is_launcher_running();
             let discord_running = self.process_detector.is_discord_running();
 
-            // Handle Hytale state changes
-            if hytale_running && !self.hytale_was_running {
-                info!("Hytale detected");
-                self.update_tray_status("Hytale detected");
-                show_notification("Hytale RPC", "Hytale detected - monitoring game state");
-            } else if !hytale_running && self.hytale_was_running {
-                info!("Hytale closed");
+            // Handle Hytale Game state changes
+            if game_running && !self.hytale_was_running {
+                info!("Hytale Game detected");
+                self.update_tray_status("Hytale Game detected");
+                show_notification("Hytale RPC", "Hytale Game detected");
+            } else if !game_running && self.hytale_was_running {
+                info!("Hytale Game closed");
                 self.update_tray_status("Waiting for Hytale...");
                 self.log_watcher.reset();
                 if self.discord_rpc.is_connected() {
                     let _ = self.discord_rpc.clear();
                 }
-                show_notification("Hytale RPC", "Hytale closed");
+                show_notification("Hytale RPC", "Hytale Game closed");
             }
-            self.hytale_was_running = hytale_running;
+            self.hytale_was_running = game_running;
+
+            // Handle Launcher state changes
+            if launcher_running && !self.launcher_was_running {
+                info!("Hytale Launcher detected");
+                if !game_running {
+                    self.update_tray_status("In Launcher");
+                }
+            } else if !launcher_running && self.launcher_was_running {
+                info!("Hytale Launcher closed");
+            }
+            self.launcher_was_running = launcher_running;
 
             // Handle Discord state changes
             if discord_running && !self.discord_was_running {
@@ -126,35 +140,59 @@ impl App {
                 self.discord_rpc.disconnect();
             }
             self.discord_was_running = discord_running;
-
-            // Only monitor if both are running
-            if hytale_running && discord_running {
-                // Ensure connected to Discord RPC
-                if !self.discord_rpc.is_connected() {
-                    if let Err(e) = self.discord_rpc.connect() {
-                        warn!("Could not connect to Discord RPC: {}", e);
-                    }
-                }
-
-                // Update log watcher
-                match self.log_watcher.update() {
-                    Ok(changed) => {
-                        if changed {
-                            let state = self.log_watcher.state();
-                            let status = format!("{} - {}", state.details(), state.state());
-                            self.update_tray_status(&status);
-
-                            // Update Discord RPC
-                            if let Err(e) = self.discord_rpc.update(state) {
-                                error!("Failed to update Discord RPC: {}", e);
-                            }
+            
+            // Priority: Game > Launcher > None
+            if discord_running {
+                if game_running {
+                    // Core Game Logic (Log Watcher)
+                    if !self.discord_rpc.is_connected() {
+                        if let Err(e) = self.discord_rpc.connect() {
+                            warn!("Could not connect to Discord RPC: {}", e);
                         }
                     }
-                    Err(e) => {
-                        warn!("Error reading log file: {}", e);
+
+                    // Update log watcher
+                    match self.log_watcher.update() {
+                        Ok(changed) => {
+                            if changed {
+                                let state = self.log_watcher.state();
+                                let status = format!("{} - {}", state.details(), state.state());
+                                self.update_tray_status(&status);
+
+                                // Update Discord RPC
+                                if let Err(e) = self.discord_rpc.update(state) {
+                                    error!("Failed to update Discord RPC: {}", e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Error reading log file: {}", e);
+                        }
                     }
+                } else if launcher_running {
+                    // Launcher Logic
+                    if !self.discord_rpc.is_connected() {
+                        if let Err(e) = self.discord_rpc.connect() {
+                            warn!("Could not connect to Discord RPC: {}", e);
+                        }
+                    }
+
+                    // We just want to set presence to "In Launcher" once (or periodically re-assert)
+                    // Simplified: just update every loop for now, or check state
+                    use crate::config::GameState;
+                    let state = GameState::Launcher;
+                    self.update_tray_status("In Launcher");
+                     if let Err(e) = self.discord_rpc.update(&state) {
+                        error!("Failed to update Discord RPC for Launcher: {}", e);
+                    }
+                } else {
+                    // Neither running
+                     if self.discord_rpc.is_connected() {
+                         let _ = self.discord_rpc.clear();
+                     }
+                    self.update_tray_status("Waiting for Hytale...");
                 }
-            } else if hytale_running && !discord_running {
+            } else if (game_running || launcher_running) && !discord_running {
                 self.update_tray_status("Waiting for Discord...");
             }
 

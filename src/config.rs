@@ -12,12 +12,16 @@ pub const LARGE_TEXT: &str = "Hytale";
 /// Polling interval in milliseconds
 pub const POLL_INTERVAL_MS: u64 = 3000;
 
-/// Process names to detect for Hytale
-pub const HYTALE_PROCESS_NAMES: &[&str] = &[
+/// Process names to detect for Hytale Game Client
+pub const HYTALE_GAME_PROCESSES: &[&str] = &[
     "hytale",
     "hytale.exe",
     "hytaleclient",
     "hytaleclient.exe",
+];
+
+/// Process names to detect for Hytale Launcher
+pub const HYTALE_LAUNCHER_PROCESSES: &[&str] = &[
     "hytalelauncher",
     "hytalelauncher.exe",
     "hytale-launcher",
@@ -87,6 +91,8 @@ pub const LOG_FILE_PATTERN: &str = "*_client.log";
 /// Game states
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GameState {
+    /// In the Hytale Launcher
+    Launcher,
     /// Not running or in main menu
     MainMenu,
     /// Loading a world (singleplayer or multiplayer)
@@ -115,6 +121,7 @@ impl GameState {
     /// Get Discord RPC details string
     pub fn details(&self) -> &str {
         match self {
+            GameState::Launcher => "In Launcher",
             GameState::MainMenu => "In Main Menu",
             GameState::Loading { is_multiplayer, .. } => {
                 if *is_multiplayer {
@@ -132,6 +139,7 @@ impl GameState {
     /// Get Discord RPC state string
     pub fn state(&self) -> String {
         match self {
+            GameState::Launcher => "Ready to Play".to_string(),
             GameState::MainMenu => "Idle".to_string(),
             GameState::Loading { world_name, .. } => world_name
                 .as_ref()
