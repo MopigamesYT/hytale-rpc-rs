@@ -107,7 +107,7 @@ The application automatically detects Hytale log files in the following location
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+GPL-3.0 License - see [LICENSE](LICENSE) for details.
 
 ## Credits
 

@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2021"
 description = "Discord Rich Presence for Hytale"
 authors = ["Your Name"]
-license = "MIT"
+license = "GPL-3.0"
 repository = "https://github.com/MopigamesYT/hytale-rpc-rs"
 
 [dependencies]
