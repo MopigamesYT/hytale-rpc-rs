@@ -79,6 +79,7 @@ mod tests {
         let detector = ProcessDetector::new();
         // Should be able to check processes without panicking
         let _ = detector.is_discord_running();
-        let _ = detector.is_hytale_running();
+        let _ = detector.is_game_running();
+        let _ = detector.is_launcher_running();
     }
 }
