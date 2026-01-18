@@ -1,0 +1,58 @@
+[package]
+name = "hytale-rpc"
+version = "1.0.0"
+edition = "2021"
+description = "Discord Rich Presence for Hytale"
+authors = ["Your Name"]
+license = "MIT"
+repository = "https://github.com/MopigamesYT/hytale-rpc-rs"
+
+[dependencies]
+# Discord RPC
+discord-rich-presence = "0.2"
+
+# Process detection
+sysinfo = "0.31"
+
+# Regex for log parsing
+regex = "1"
+
+# Home directory resolution
+dirs = "5"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Serialization (for potential config files)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Time handling
+chrono = "0.4"
+
+# Image handling for tray icon
+image = "0.25"
+
+# Platform-specific dependencies
+[target.'cfg(target_os = "linux")'.dependencies]
+notify-rust = "4"
+ksni = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+notify-rust = "4"
+tray-icon = "0.19"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winrt-notification = "0.5"
+tray-icon = "0.19"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
