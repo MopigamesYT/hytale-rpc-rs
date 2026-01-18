@@ -264,10 +264,22 @@ impl LogWatcher {
         // Check for server address
         if let Some(caps) = self.patterns.server_connect.captures(line) {
             if let (Some(host), Some(port)) = (caps.get(1), caps.get(2)) {
-                let address = format!("{}:{}", host.as_str(), port.as_str());
+                let host_str = host.as_str();
+                let address = format!("{}:{}", host_str, port.as_str());
                 debug!("Detected: Server address {}", address);
-                self.pending_server_address = Some(address);
-                self.is_multiplayer = true;
+
+                // Check if it's localhost - treat as singleplayer
+                let is_localhost = host_str == "127.0.0.1"
+                    || host_str == "localhost"
+                    || host_str == "::1";
+
+                if is_localhost {
+                    debug!("Localhost detected, treating as singleplayer");
+                    self.is_multiplayer = false;
+                } else {
+                    self.pending_server_address = Some(address);
+                    self.is_multiplayer = true;
+                }
                 return false; // Don't trigger state change yet
             }
         }
