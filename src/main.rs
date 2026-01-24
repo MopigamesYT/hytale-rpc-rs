@@ -140,7 +140,7 @@ impl App {
                     }
                 }
 
-                // Update log watcher
+                // Update log watcher and RPC (only if connected)
                 match self.log_watcher.update() {
                     Ok(changed) => {
                         if changed {
@@ -148,9 +148,10 @@ impl App {
                             let status = format!("{} - {}", state.details(), state.state());
                             self.update_tray_status(&status);
 
-                            // Update Discord RPC
-                            if let Err(e) = self.discord_rpc.update(state) {
-                                error!("Failed to update Discord RPC: {}", e);
+                            if self.discord_rpc.is_connected() {
+                                if let Err(e) = self.discord_rpc.update(state) {
+                                    error!("Failed to update Discord RPC: {}", e);
+                                }
                             }
                         }
                     }
@@ -167,11 +168,13 @@ impl App {
                     }
                 }
 
-                use crate::config::GameState;
-                let state = GameState::Launcher;
-                self.update_tray_status("In Launcher");
-                if let Err(e) = self.discord_rpc.update(&state) {
-                    error!("Failed to update Discord RPC for Launcher: {}", e);
+                if self.discord_rpc.is_connected() {
+                    use crate::config::GameState;
+                    let state = GameState::Launcher;
+                    self.update_tray_status("In Launcher");
+                    if let Err(e) = self.discord_rpc.update(&state) {
+                        error!("Failed to update Discord RPC for Launcher: {}", e);
+                    }
                 }
             } else {
                 // Neither running - clear presence and disconnect

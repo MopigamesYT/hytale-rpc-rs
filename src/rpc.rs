@@ -40,8 +40,7 @@ impl DiscordRpc {
 
         info!("Connecting to Discord RPC...");
 
-        let mut client = DiscordIpcClient::new(CLIENT_ID)
-            .map_err(|e| anyhow::anyhow!("Failed to create Discord IPC client: {}", e))?;
+        let mut client = DiscordIpcClient::new(CLIENT_ID);
 
         match client.connect() {
             Ok(_) => {
@@ -91,10 +90,7 @@ impl DiscordRpc {
 
         let client = match self.client.as_mut() {
             Some(c) => c,
-            None => {
-                self.connect()?;
-                self.client.as_mut().unwrap()
-            }
+            None => return Err(anyhow::anyhow!("Not connected to Discord")),
         };
 
         // Set start timestamp when entering game
