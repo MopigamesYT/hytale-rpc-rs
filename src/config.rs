@@ -27,19 +27,6 @@ pub const HYTALE_LAUNCHER_PROCESSES: &[&str] = &[
     "hytale-launcher",
 ];
 
-/// Process names to detect for Discord
-pub const DISCORD_PROCESS_NAMES: &[&str] = &[
-    "discord",
-    "discord.exe",
-    "discordcanary",
-    "discordcanary.exe",
-    "discordptb",
-    "discordptb.exe",
-    "Discord",
-    "DiscordCanary",
-    "DiscordPTB",
-];
-
 /// Get potential Hytale log directories based on platform
 pub fn get_log_directories() -> Vec<PathBuf> {
     let mut paths = Vec::new();

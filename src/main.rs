@@ -28,7 +28,6 @@ struct App {
     tray: Option<SystemTray>,
     hytale_was_running: bool,
     launcher_was_running: bool,
-    discord_was_running: bool,
 }
 
 impl App {
@@ -40,7 +39,6 @@ impl App {
             tray: None,
             hytale_was_running: false,
             launcher_was_running: false,
-            discord_was_running: false,
         })
     }
 
@@ -103,7 +101,6 @@ impl App {
 
             let game_running = self.process_detector.is_game_running();
             let launcher_running = self.process_detector.is_launcher_running();
-            let discord_running = self.process_detector.is_discord_running();
 
             // Handle Hytale Game state changes
             if game_running && !self.hytale_was_running {
@@ -132,68 +129,57 @@ impl App {
             }
             self.launcher_was_running = launcher_running;
 
-            // Handle Discord state changes
-            if discord_running && !self.discord_was_running {
-                info!("Discord detected");
-            } else if !discord_running && self.discord_was_running {
-                info!("Discord closed");
-                self.discord_rpc.disconnect();
-            }
-            self.discord_was_running = discord_running;
-            
             // Priority: Game > Launcher > None
-            if discord_running {
-                if game_running {
-                    // Core Game Logic (Log Watcher)
-                    if !self.discord_rpc.is_connected() {
-                        if let Err(e) = self.discord_rpc.connect() {
-                            warn!("Could not connect to Discord RPC: {}", e);
-                        }
+            // Just try to connect - works with any Discord client or arRPC
+            if game_running {
+                // Core Game Logic (Log Watcher)
+                if !self.discord_rpc.is_connected() {
+                    if let Err(e) = self.discord_rpc.connect() {
+                        warn!("Could not connect to Discord RPC: {}", e);
+                        self.update_tray_status("Waiting for Discord...");
                     }
+                }
 
-                    // Update log watcher
-                    match self.log_watcher.update() {
-                        Ok(changed) => {
-                            if changed {
-                                let state = self.log_watcher.state();
-                                let status = format!("{} - {}", state.details(), state.state());
-                                self.update_tray_status(&status);
+                // Update log watcher
+                match self.log_watcher.update() {
+                    Ok(changed) => {
+                        if changed {
+                            let state = self.log_watcher.state();
+                            let status = format!("{} - {}", state.details(), state.state());
+                            self.update_tray_status(&status);
 
-                                // Update Discord RPC
-                                if let Err(e) = self.discord_rpc.update(state) {
-                                    error!("Failed to update Discord RPC: {}", e);
-                                }
+                            // Update Discord RPC
+                            if let Err(e) = self.discord_rpc.update(state) {
+                                error!("Failed to update Discord RPC: {}", e);
                             }
                         }
-                        Err(e) => {
-                            warn!("Error reading log file: {}", e);
-                        }
                     }
-                } else if launcher_running {
-                    // Launcher Logic
-                    if !self.discord_rpc.is_connected() {
-                        if let Err(e) = self.discord_rpc.connect() {
-                            warn!("Could not connect to Discord RPC: {}", e);
-                        }
+                    Err(e) => {
+                        warn!("Error reading log file: {}", e);
                     }
-
-                    // We just want to set presence to "In Launcher" once (or periodically re-assert)
-                    // Simplified: just update every loop for now, or check state
-                    use crate::config::GameState;
-                    let state = GameState::Launcher;
-                    self.update_tray_status("In Launcher");
-                     if let Err(e) = self.discord_rpc.update(&state) {
-                        error!("Failed to update Discord RPC for Launcher: {}", e);
-                    }
-                } else {
-                    // Neither running
-                     if self.discord_rpc.is_connected() {
-                         let _ = self.discord_rpc.clear();
-                     }
-                    self.update_tray_status("Waiting for Hytale...");
                 }
-            } else if (game_running || launcher_running) && !discord_running {
-                self.update_tray_status("Waiting for Discord...");
+            } else if launcher_running {
+                // Launcher Logic
+                if !self.discord_rpc.is_connected() {
+                    if let Err(e) = self.discord_rpc.connect() {
+                        warn!("Could not connect to Discord RPC: {}", e);
+                        self.update_tray_status("Waiting for Discord...");
+                    }
+                }
+
+                use crate::config::GameState;
+                let state = GameState::Launcher;
+                self.update_tray_status("In Launcher");
+                if let Err(e) = self.discord_rpc.update(&state) {
+                    error!("Failed to update Discord RPC for Launcher: {}", e);
+                }
+            } else {
+                // Neither running - clear presence and disconnect
+                if self.discord_rpc.is_connected() {
+                    let _ = self.discord_rpc.clear();
+                    self.discord_rpc.disconnect();
+                }
+                self.update_tray_status("Waiting for Hytale...");
             }
 
             thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));

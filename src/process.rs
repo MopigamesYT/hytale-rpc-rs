@@ -1,11 +1,8 @@
-//! Process detection module for Hytale and Discord
+//! Process detection module for Hytale
 
 use sysinfo::System;
 
-// Imports removed since they are used fully qualified in methods or not needed
-
-
-/// Process detector for monitoring Hytale and Discord
+/// Process detector for monitoring Hytale
 pub struct ProcessDetector {
     system: System,
 }
@@ -31,11 +28,6 @@ impl ProcessDetector {
     /// Check if Hytale Launcher is running
     pub fn is_launcher_running(&self) -> bool {
         self.is_process_running(crate::config::HYTALE_LAUNCHER_PROCESSES)
-    }
-
-    /// Check if Discord is running
-    pub fn is_discord_running(&self) -> bool {
-        self.is_process_running(crate::config::DISCORD_PROCESS_NAMES)
     }
 
     /// Check if any of the given process names are running
@@ -78,7 +70,6 @@ mod tests {
     fn test_process_detector_creation() {
         let detector = ProcessDetector::new();
         // Should be able to check processes without panicking
-        let _ = detector.is_discord_running();
         let _ = detector.is_game_running();
         let _ = detector.is_launcher_running();
     }
