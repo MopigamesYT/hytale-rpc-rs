@@ -1,6 +1,6 @@
 [package]
 name = "hytale-rpc"
-version = "1.1.0"
+version = "1.1.1"
 edition = "2021"
 description = "Discord Rich Presence for Hytale"
 authors = ["Your Name"]
