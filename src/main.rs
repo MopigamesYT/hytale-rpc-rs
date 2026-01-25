@@ -3,6 +3,7 @@
 //! A system tray application that displays your Hytale game activity on Discord.
 
 mod config;
+mod gui;
 mod log_watcher;
 mod process;
 mod rpc;
@@ -11,6 +12,7 @@ mod tray;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use std::sync::mpsc::Sender;
 
 use anyhow::Result;
 use log::{error, info, warn};
@@ -30,11 +32,11 @@ struct App {
     config: Arc<Mutex<AppConfig>>,
     hytale_was_running: bool,
     launcher_was_running: bool,
+    gui_tx: Sender<()>,
 }
 
 impl App {
-    fn new() -> Result<Self> {
-        let config = Arc::new(Mutex::new(AppConfig::load()));
+    fn new(config: Arc<Mutex<AppConfig>>, gui_tx: Sender<()>) -> Result<Self> {
         Ok(Self {
             process_detector: ProcessDetector::new(),
             log_watcher: LogWatcher::new(),
@@ -43,6 +45,7 @@ impl App {
             config,
             hytale_was_running: false,
             launcher_was_running: false,
+            gui_tx,
         })
     }
 
@@ -64,9 +67,6 @@ impl App {
             tray.update_status(TrayStatus {
                 tooltip: tooltip.to_string(),
             });
-        } else {
-            // CLI mode - print to console
-            // println!("[Status] {}", tooltip); // Reduce noise
         }
     }
 
@@ -84,6 +84,9 @@ impl App {
                     TrayEvent::OpenHytale => {
                         open_url("https://hytale.com");
                     }
+                    TrayEvent::OpenConfig => {
+                        let _ = self.gui_tx.send(());
+                    }
                     TrayEvent::ToggleShowWorldName => {
                         let mut cfg = self.config.lock().unwrap();
                         cfg.show_world_name = !cfg.show_world_name;
@@ -92,7 +95,6 @@ impl App {
                         }
                         info!("Toggled show_world_name to {}", cfg.show_world_name);
                         
-                        // Refresh menu to show new state
                         #[cfg(target_os = "linux")]
                         tray.refresh_menu();
                     }
@@ -104,7 +106,6 @@ impl App {
                         }
                         info!("Toggled show_server_ip to {}", cfg.show_server_ip);
 
-                        // Refresh menu to show new state
                         #[cfg(target_os = "linux")]
                         tray.refresh_menu();
                     }
@@ -115,7 +116,7 @@ impl App {
     }
 
     fn run(&mut self) -> Result<()> {
-        info!("Starting Hytale Discord Rich Presence");
+        info!("Starting Hytale Discord Rich Presence (Background Service)");
         self.update_tray_status("Waiting for Hytale...");
 
         loop {
@@ -157,9 +158,7 @@ impl App {
             }
             self.launcher_was_running = launcher_running;
 
-            // Priority: Game > Launcher > None
             if game_running {
-                // Core Game Logic (Log Watcher)
                 if !self.discord_rpc.is_connected() {
                     if let Err(e) = self.discord_rpc.connect() {
                         warn!("Could not connect to Discord RPC: {}", e);
@@ -175,8 +174,6 @@ impl App {
 
                 let state = self.log_watcher.state();
                 
-                // Update tray status if log changed or just periodically to reflect config?
-                // We update it if log changed for now.
                 if log_changed {
                     let config_guard = self.config.lock().unwrap();
                     let status = format!("{} - {}", state.details(), state.state(&config_guard));
@@ -190,7 +187,6 @@ impl App {
                     }
                 }
             } else if launcher_running {
-                // Launcher Logic
                 if !self.discord_rpc.is_connected() {
                     if let Err(e) = self.discord_rpc.connect() {
                         warn!("Could not connect to Discord RPC: {}", e);
@@ -209,7 +205,6 @@ impl App {
                     }
                 }
             } else {
-                // Neither running - clear presence and disconnect
                 if self.discord_rpc.is_connected() {
                     let _ = self.discord_rpc.clear();
                     self.discord_rpc.disconnect();
@@ -220,11 +215,9 @@ impl App {
             thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
         }
 
-        // Cleanup
-        info!("Shutting down...");
+        info!("Shutting down background service...");
         self.discord_rpc.disconnect();
-
-        Ok(())
+        std::process::exit(0);
     }
 }
 
@@ -236,13 +229,35 @@ fn main() -> Result<()> {
 
     info!("Hytale Discord Rich Presence v{}", env!("CARGO_PKG_VERSION"));
 
-    let mut app = App::new()?;
+    let config = Arc::new(Mutex::new(AppConfig::load()));
+    
+    // Create a channel for GUI events
+    let (gui_tx, gui_rx) = std::sync::mpsc::channel();
 
-    // Initialize tray (may fail on headless systems)
-    if let Err(e) = app.init_tray() {
-        warn!("Could not initialize tray: {}", e);
-    }
+    let config_rpc = config.clone();
+    
+    // Spawn RPC background thread
+    thread::spawn(move || {
+        let mut app = match App::new(config_rpc, gui_tx) {
+            Ok(app) => app,
+            Err(e) => {
+                error!("Failed to initialize app: {}", e);
+                std::process::exit(1);
+            }
+        };
 
-    // Run main loop
-    app.run()
+        if let Err(e) = app.init_tray() {
+            warn!("Could not initialize tray: {}", e);
+        }
+
+        if let Err(e) = app.run() {
+            error!("Application error: {}", e);
+            std::process::exit(1);
+        }
+    });
+
+    // Run GUI on main thread
+    gui::run(config, gui_rx);
+
+    Ok(())
 }
