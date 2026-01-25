@@ -8,13 +8,14 @@ mod process;
 mod rpc;
 mod tray;
 
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use anyhow::Result;
 use log::{error, info, warn};
 
-use crate::config::POLL_INTERVAL_MS;
+use crate::config::{AppConfig, POLL_INTERVAL_MS};
 use crate::log_watcher::LogWatcher;
 use crate::process::ProcessDetector;
 use crate::rpc::DiscordRpc;
@@ -26,24 +27,27 @@ struct App {
     log_watcher: LogWatcher,
     discord_rpc: DiscordRpc,
     tray: Option<SystemTray>,
+    config: Arc<Mutex<AppConfig>>,
     hytale_was_running: bool,
     launcher_was_running: bool,
 }
 
 impl App {
     fn new() -> Result<Self> {
+        let config = Arc::new(Mutex::new(AppConfig::load()));
         Ok(Self {
             process_detector: ProcessDetector::new(),
             log_watcher: LogWatcher::new(),
             discord_rpc: DiscordRpc::new(),
             tray: None,
+            config,
             hytale_was_running: false,
             launcher_was_running: false,
         })
     }
 
     fn init_tray(&mut self) -> Result<()> {
-        match SystemTray::new() {
+        match SystemTray::new(self.config.clone()) {
             Ok(tray) => {
                 self.tray = Some(tray);
                 info!("System tray initialized successfully");
@@ -62,13 +66,13 @@ impl App {
             });
         } else {
             // CLI mode - print to console
-            println!("[Status] {}", tooltip);
+            // println!("[Status] {}", tooltip); // Reduce noise
         }
     }
 
-    fn handle_tray_events(&self) -> bool {
+    fn handle_tray_events(&mut self) -> bool {
         if let Some(ref tray) = self.tray {
-            if let Some(event) = tray.poll_event() {
+            while let Some(event) = tray.poll_event() {
                 match event {
                     TrayEvent::Quit => {
                         info!("Quit requested from tray");
@@ -79,6 +83,30 @@ impl App {
                     }
                     TrayEvent::OpenHytale => {
                         open_url("https://hytale.com");
+                    }
+                    TrayEvent::ToggleShowWorldName => {
+                        let mut cfg = self.config.lock().unwrap();
+                        cfg.show_world_name = !cfg.show_world_name;
+                        if let Err(e) = cfg.save() {
+                            error!("Failed to save config: {}", e);
+                        }
+                        info!("Toggled show_world_name to {}", cfg.show_world_name);
+                        
+                        // Refresh menu to show new state
+                        #[cfg(target_os = "linux")]
+                        tray.refresh_menu();
+                    }
+                    TrayEvent::ToggleShowServerIp => {
+                        let mut cfg = self.config.lock().unwrap();
+                        cfg.show_server_ip = !cfg.show_server_ip;
+                        if let Err(e) = cfg.save() {
+                            error!("Failed to save config: {}", e);
+                        }
+                        info!("Toggled show_server_ip to {}", cfg.show_server_ip);
+
+                        // Refresh menu to show new state
+                        #[cfg(target_os = "linux")]
+                        tray.refresh_menu();
                     }
                 }
             }
@@ -130,7 +158,6 @@ impl App {
             self.launcher_was_running = launcher_running;
 
             // Priority: Game > Launcher > None
-            // Just try to connect - works with any Discord client or arRPC
             if game_running {
                 // Core Game Logic (Log Watcher)
                 if !self.discord_rpc.is_connected() {
@@ -140,23 +167,26 @@ impl App {
                     }
                 }
 
-                // Update log watcher and RPC (only if connected)
-                match self.log_watcher.update() {
-                    Ok(changed) => {
-                        if changed {
-                            let state = self.log_watcher.state();
-                            let status = format!("{} - {}", state.details(), state.state());
-                            self.update_tray_status(&status);
+                // Update log watcher
+                let log_changed = self.log_watcher.update().unwrap_or_else(|e| {
+                    warn!("Error reading log file: {}", e);
+                    false
+                });
 
-                            if self.discord_rpc.is_connected() {
-                                if let Err(e) = self.discord_rpc.update(state) {
-                                    error!("Failed to update Discord RPC: {}", e);
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        warn!("Error reading log file: {}", e);
+                let state = self.log_watcher.state();
+                
+                // Update tray status if log changed or just periodically to reflect config?
+                // We update it if log changed for now.
+                if log_changed {
+                    let config_guard = self.config.lock().unwrap();
+                    let status = format!("{} - {}", state.details(), state.state(&config_guard));
+                    self.update_tray_status(&status);
+                }
+
+                if self.discord_rpc.is_connected() {
+                    let config_guard = self.config.lock().unwrap();
+                    if let Err(e) = self.discord_rpc.update(state, &config_guard) {
+                        error!("Failed to update Discord RPC: {}", e);
                     }
                 }
             } else if launcher_running {
@@ -172,7 +202,9 @@ impl App {
                     use crate::config::GameState;
                     let state = GameState::Launcher;
                     self.update_tray_status("In Launcher");
-                    if let Err(e) = self.discord_rpc.update(&state) {
+                    
+                    let config_guard = self.config.lock().unwrap();
+                    if let Err(e) = self.discord_rpc.update(&state, &config_guard) {
                         error!("Failed to update Discord RPC for Launcher: {}", e);
                     }
                 }

@@ -6,12 +6,16 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use log::{debug, error, info};
 
+use crate::config::AppConfig;
+
 /// Events from the tray menu
 #[derive(Debug, Clone)]
 pub enum TrayEvent {
     Quit,
     OpenGithub,
     OpenHytale,
+    ToggleShowWorldName,
+    ToggleShowServerIp,
 }
 
 /// Status to display in tray
@@ -39,6 +43,7 @@ mod linux {
 
     struct HytaleTray {
         status: Arc<Mutex<String>>,
+        config: Arc<Mutex<AppConfig>>,
         event_tx: Sender<TrayEvent>,
     }
 
@@ -70,11 +75,31 @@ mod linux {
             use ksni::menu::*;
 
             let status = self.status.lock().unwrap().clone();
+            let config = self.config.lock().unwrap();
 
             vec![
                 StandardItem {
                     label: status,
                     enabled: false,
+                    ..Default::default()
+                }
+                .into(),
+                MenuItem::Separator,
+                CheckmarkItem {
+                    label: "Show World Name".to_string(),
+                    checked: config.show_world_name,
+                    activate: Box::new(|tray: &mut Self| {
+                        let _ = tray.event_tx.send(TrayEvent::ToggleShowWorldName);
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+                CheckmarkItem {
+                    label: "Show Server IP".to_string(),
+                    checked: config.show_server_ip,
+                    activate: Box::new(|tray: &mut Self| {
+                        let _ = tray.event_tx.send(TrayEvent::ToggleShowServerIp);
+                    }),
                     ..Default::default()
                 }
                 .into(),
@@ -115,12 +140,13 @@ mod linux {
     }
 
     impl SystemTray {
-        pub fn new() -> Result<Self> {
+        pub fn new(config: Arc<Mutex<AppConfig>>) -> Result<Self> {
             let (event_tx, event_rx) = mpsc::channel();
             let status = Arc::new(Mutex::new("Waiting for Hytale...".to_string()));
 
             let tray = HytaleTray {
                 status: status.clone(),
+                config,
                 event_tx,
             };
 
@@ -149,6 +175,11 @@ mod linux {
             self.handle.update(|_| {});
             debug!("Tray status updated: {}", new_status.tooltip);
         }
+        
+        /// Trigger a menu rebuild to reflect config changes
+        pub fn refresh_menu(&self) {
+            self.handle.update(|_| {});
+        }
     }
 }
 
@@ -160,7 +191,7 @@ mod linux {
 mod desktop {
     use super::*;
     use image::RgbaImage;
-    use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+    use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
     use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
     pub struct SystemTray {
@@ -168,26 +199,40 @@ mod desktop {
         event_rx: Receiver<TrayEvent>,
         status: Arc<Mutex<TrayStatus>>,
         status_item: MenuItem,
+        world_name_item: CheckMenuItem,
+        server_ip_item: CheckMenuItem,
     }
 
     impl SystemTray {
-        pub fn new() -> Result<Self> {
+        pub fn new(config: Arc<Mutex<AppConfig>>) -> Result<Self> {
             let (event_tx, event_rx) = mpsc::channel();
             let status = Arc::new(Mutex::new(TrayStatus::default()));
 
+            // Get initial config values
+            let (show_world_name, show_server_ip) = {
+                let cfg = config.lock().unwrap();
+                (cfg.show_world_name, cfg.show_server_ip)
+            };
+
             let status_item = MenuItem::new("Waiting for Hytale...", false, None);
             let separator = PredefinedMenuItem::separator();
+            let world_name_item = CheckMenuItem::new("Show World Name", true, show_world_name, None);
+            let server_ip_item = CheckMenuItem::new("Show Server IP", true, show_server_ip, None);
+            let separator2 = PredefinedMenuItem::separator();
             let github_item = MenuItem::new("GitHub", true, None);
             let hytale_item = MenuItem::new("Hytale Website", true, None);
-            let separator2 = PredefinedMenuItem::separator();
+            let separator3 = PredefinedMenuItem::separator();
             let quit_item = MenuItem::new("Quit", true, None);
 
             let menu = Menu::new();
             menu.append(&status_item)?;
             menu.append(&separator)?;
+            menu.append(&world_name_item)?;
+            menu.append(&server_ip_item)?;
+            menu.append(&separator2)?;
             menu.append(&github_item)?;
             menu.append(&hytale_item)?;
-            menu.append(&separator2)?;
+            menu.append(&separator3)?;
             menu.append(&quit_item)?;
 
             let icon = create_tray_icon()?;
@@ -201,6 +246,8 @@ mod desktop {
             let quit_id = quit_item.id().clone();
             let github_id = github_item.id().clone();
             let hytale_id = hytale_item.id().clone();
+            let world_name_id = world_name_item.id().clone();
+            let server_ip_id = server_ip_item.id().clone();
 
             std::thread::spawn(move || {
                 loop {
@@ -211,6 +258,10 @@ mod desktop {
                             Some(TrayEvent::OpenGithub)
                         } else if event.id == hytale_id {
                             Some(TrayEvent::OpenHytale)
+                        } else if event.id == world_name_id {
+                            Some(TrayEvent::ToggleShowWorldName)
+                        } else if event.id == server_ip_id {
+                            Some(TrayEvent::ToggleShowServerIp)
                         } else {
                             None
                         };
@@ -231,6 +282,8 @@ mod desktop {
                 event_rx,
                 status,
                 status_item,
+                world_name_item,
+                server_ip_item,
             })
         }
 
@@ -242,8 +295,15 @@ mod desktop {
             if let Ok(mut status) = self.status.lock() {
                 *status = new_status.clone();
             }
-            self.status_item.set_text(&new_status.tooltip);
+            let _ = self.status_item.set_text(&new_status.tooltip);
             debug!("Tray status updated: {}", new_status.tooltip);
+        }
+
+        pub fn refresh_menu(&self) {
+            // No-op for now as CheckMenuItem toggles itself visually, 
+            // and we sync the config in main loop. 
+            // If we needed to force sync:
+            // self.world_name_item.set_checked(config.show_world_name);
         }
     }
 

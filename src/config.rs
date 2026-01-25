@@ -113,12 +113,7 @@ impl GameState {
             GameState::MainMenu => "In Main Menu",
             GameState::Loading { is_multiplayer, sub_stage, .. } => {
                 if let Some(stage) = sub_stage {
-                    return stage; // Returns &String as &str, lifetime issue? No, wait.
-                    // details returns &str (static lifetime implied or match lifetime). 
-                    // String is owned by the struct.
-                    // We need to return Cow or just String. 
-                    // But the signature is `&self -> &str`. This implies returning a reference to something in self or static.
-                    // `sub_stage` is Option<String>. `sub_stage.as_str()` works.
+                    return stage; 
                 }
                 
                 if *is_multiplayer {
@@ -134,29 +129,47 @@ impl GameState {
     }
 
     /// Get Discord RPC state string
-    pub fn state(&self) -> String {
+    pub fn state(&self, config: &AppConfig) -> String {
         match self {
             GameState::Launcher => "Ready to Play".to_string(),
             GameState::MainMenu => "Idle".to_string(),
             GameState::Loading { world_name, sub_stage, .. } => {
                  if let Some(_) = sub_stage {
                      // If we have a sub_stage in details ("Loading..."), put world name here
-                     world_name
-                        .as_ref()
-                        .map(|n| n.clone())
-                        .unwrap_or_else(|| "Please wait...".to_string())
+                     if config.show_world_name {
+                         world_name
+                            .as_ref()
+                            .map(|n| n.clone())
+                            .unwrap_or_else(|| "Please wait...".to_string())
+                     } else {
+                         "Please wait...".to_string()
+                     }
                  } else {
-                     world_name
-                        .as_ref()
-                        .map(|n| n.clone())
-                        .unwrap_or_else(|| "...".to_string())
+                     if config.show_world_name {
+                         world_name
+                            .as_ref()
+                            .map(|n| n.clone())
+                            .unwrap_or_else(|| "...".to_string())
+                     } else {
+                         "...".to_string()
+                     }
                  }
             },
-            GameState::Singleplayer { world_name } => format!("World: {}", world_name),
+            GameState::Singleplayer { world_name } => {
+                if config.show_world_name {
+                    format!("World: {}", world_name)
+                } else {
+                    "In Game".to_string()
+                }
+            },
             GameState::Multiplayer {
                 server_address,
                 server_name,
             } => {
+                if !config.show_server_ip {
+                    return "Online".to_string();
+                }
+
                 if let Some(name) = server_name {
                     format!("Server: {}", name)
                 } else if let Some(addr) = server_address {
@@ -173,4 +186,53 @@ impl GameState {
     pub fn is_in_game(&self) -> bool {
         matches!(self, GameState::Singleplayer { .. } | GameState::Multiplayer { .. })
     }
+}
+
+/// Application configuration
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AppConfig {
+    pub show_world_name: bool,
+    pub show_server_ip: bool,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            show_world_name: true,
+            show_server_ip: true,
+        }
+    }
+}
+
+impl AppConfig {
+    /// Load configuration from file
+    pub fn load() -> Self {
+        let config_path = get_config_path();
+        if config_path.exists() {
+            if let Ok(file) = std::fs::File::open(&config_path) {
+                if let Ok(config) = serde_json::from_reader(file) {
+                    return config;
+                }
+            }
+        }
+        Self::default()
+    }
+
+    /// Save configuration to file
+    pub fn save(&self) -> std::io::Result<()> {
+        let config_path = get_config_path();
+        if let Some(parent) = config_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let file = std::fs::File::create(config_path)?;
+        serde_json::to_writer_pretty(file, self)?;
+        Ok(())
+    }
+}
+
+fn get_config_path() -> PathBuf {
+    let mut path = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+    path.push("hytale-rpc");
+    path.push("config.json");
+    path
 }

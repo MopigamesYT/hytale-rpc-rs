@@ -6,7 +6,7 @@ use anyhow::Result;
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use log::{debug, error, info, warn};
 
-use crate::config::{GameState, CLIENT_ID, LARGE_IMAGE, LARGE_TEXT};
+use crate::config::{AppConfig, GameState, CLIENT_ID, LARGE_IMAGE, LARGE_TEXT};
 
 /// Discord RPC manager
 pub struct DiscordRpc {
@@ -14,6 +14,7 @@ pub struct DiscordRpc {
     connected: bool,
     start_timestamp: Option<i64>,
     last_state: Option<GameState>,
+    last_config_signature: Option<(bool, bool)>, // Track config changes to force update
 }
 
 impl DiscordRpc {
@@ -24,6 +25,7 @@ impl DiscordRpc {
             connected: false,
             start_timestamp: None,
             last_state: None,
+            last_config_signature: None,
         }
     }
 
@@ -82,9 +84,11 @@ impl DiscordRpc {
     }
 
     /// Update Discord presence with the current game state
-    pub fn update(&mut self, state: &GameState) -> Result<()> {
-        // Skip update if state hasn't changed
-        if self.last_state.as_ref() == Some(state) {
+    pub fn update(&mut self, state: &GameState, config: &AppConfig) -> Result<()> {
+        let config_signature = (config.show_world_name, config.show_server_ip);
+        
+        // Skip update if state and config haven't changed
+        if self.last_state.as_ref() == Some(state) && self.last_config_signature == Some(config_signature) {
             return Ok(());
         }
 
@@ -109,7 +113,7 @@ impl DiscordRpc {
         }
 
         let details = state.details();
-        let state_str = state.state();
+        let state_str = state.state(config);
 
         debug!("Updating Discord presence: {} - {}", details, state_str);
 
@@ -135,6 +139,7 @@ impl DiscordRpc {
         match client.set_activity(activity_builder) {
             Ok(_) => {
                 self.last_state = Some(state.clone());
+                self.last_config_signature = Some(config_signature);
                 debug!("Discord presence updated successfully");
                 Ok(())
             }
