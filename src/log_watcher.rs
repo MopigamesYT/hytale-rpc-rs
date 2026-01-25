@@ -29,7 +29,7 @@ impl LogPatterns {
     pub fn new() -> Self {
         Self {
             main_menu: Regex::new(
-                r"Changing Stage to MainMenu|Changing from Stage (?:Loading|GameLoading) to MainMenu",
+                r"Changing Stage to MainMenu|Changing from Stage (?:Loading|GameLoading|Startup) to MainMenu",
             )
             .unwrap(),
             singleplayer_world: Regex::new(r#"Connecting to singleplayer world "([^"]+)""#)
@@ -207,11 +207,21 @@ impl LogWatcher {
     }
 
     /// Parse a single log line and update state
-    fn parse_line(&mut self, line: &str) -> bool {
-        let line = line.trim();
-        if line.is_empty() {
+    fn parse_line(&mut self, raw_line: &str) -> bool {
+        let raw_line = raw_line.trim();
+        if raw_line.is_empty() {
             return false;
         }
+
+        // Try to extract message from pipe-delimited format
+        // Format: Timestamp|Level|Source|Message
+        // If it matches this format, use the message part. Otherwise use the whole line.
+        let parts: Vec<&str> = raw_line.splitn(4, '|').collect();
+        let line = if parts.len() == 4 {
+            parts[3].trim()
+        } else {
+            raw_line
+        };
 
         // Check for main menu
         if self.patterns.main_menu.is_match(line) {
@@ -376,5 +386,14 @@ mod tests {
     fn test_log_watcher_creation() {
         let watcher = LogWatcher::new();
         assert!(matches!(watcher.state(), GameState::Unknown));
+    }
+
+    #[test]
+    fn test_new_log_format() {
+        let mut watcher = LogWatcher::new();
+        // Test Main Menu detection with new format
+        let line = "2026-01-25 11:06:22.6288|INFO|HytaleClient.Application.Program|Changing from Stage Startup to MainMenu";
+        assert!(watcher.parse_line(line));
+        assert!(matches!(watcher.state(), GameState::MainMenu));
     }
 }
