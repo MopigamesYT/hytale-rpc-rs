@@ -38,10 +38,6 @@ chrono = "0.4"
 # Image handling for tray icon
 image = "0.25"
 
-# GUI
-gtk4 = "0.9"
-glib = "0.20"
-
 # Platform-specific dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
 notify-rust = "4"

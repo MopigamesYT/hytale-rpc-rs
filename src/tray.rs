@@ -16,7 +16,6 @@ pub enum TrayEvent {
     OpenHytale,
     ToggleShowWorldName,
     ToggleShowServerIp,
-    OpenConfig,
 }
 
 /// Status to display in tray
@@ -82,15 +81,6 @@ mod linux {
                 StandardItem {
                     label: status,
                     enabled: false,
-                    ..Default::default()
-                }
-                .into(),
-                MenuItem::Separator,
-                StandardItem {
-                    label: "Configuration".to_string(),
-                    activate: Box::new(|tray: &mut Self| {
-                        let _ = tray.event_tx.send(TrayEvent::OpenConfig);
-                    }),
                     ..Default::default()
                 }
                 .into(),
@@ -226,7 +216,6 @@ mod desktop {
 
             let status_item = MenuItem::new("Waiting for Hytale...", false, None);
             let separator = PredefinedMenuItem::separator();
-            let config_item = MenuItem::new("Configuration...", true, None);
             let world_name_item = CheckMenuItem::new("Show World Name", true, show_world_name, None);
             let server_ip_item = CheckMenuItem::new("Show Server IP", true, show_server_ip, None);
             let separator2 = PredefinedMenuItem::separator();
@@ -238,7 +227,6 @@ mod desktop {
             let menu = Menu::new();
             menu.append(&status_item)?;
             menu.append(&separator)?;
-            menu.append(&config_item)?;
             menu.append(&world_name_item)?;
             menu.append(&server_ip_item)?;
             menu.append(&separator2)?;
@@ -260,7 +248,6 @@ mod desktop {
             let hytale_id = hytale_item.id().clone();
             let world_name_id = world_name_item.id().clone();
             let server_ip_id = server_ip_item.id().clone();
-            let config_id = config_item.id().clone();
 
             std::thread::spawn(move || {
                 loop {
@@ -271,8 +258,6 @@ mod desktop {
                             Some(TrayEvent::OpenGithub)
                         } else if event.id == hytale_id {
                             Some(TrayEvent::OpenHytale)
-                        } else if event.id == config_id {
-                            Some(TrayEvent::OpenConfig)
                         } else if event.id == world_name_id {
                             Some(TrayEvent::ToggleShowWorldName)
                         } else if event.id == server_ip_id {
