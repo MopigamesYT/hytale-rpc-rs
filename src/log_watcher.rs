@@ -23,6 +23,7 @@ pub struct LogPatterns {
     server_name: Regex,
     playing_singleplayer: Regex,
     playing_multiplayer: Regex,
+    loading_stage: Regex,
 }
 
 impl LogPatterns {
@@ -59,6 +60,7 @@ impl LogPatterns {
                 r"Playing in multiplayer|Multiplayer mode|Multi player|dedicated server",
             )
             .unwrap(),
+            loading_stage: Regex::new(r"Changing from loading stage (\w+) to (\w+)").unwrap(),
         }
     }
 }
@@ -244,6 +246,7 @@ impl LogWatcher {
                 self.current_state = GameState::Loading {
                     world_name: Some(name),
                     is_multiplayer: false,
+                    sub_stage: None,
                 };
                 return true;
             }
@@ -256,6 +259,7 @@ impl LogWatcher {
             self.current_state = GameState::Loading {
                 world_name: self.pending_world_name.clone(),
                 is_multiplayer: false,
+                sub_stage: None,
             };
             return true;
         }
@@ -267,8 +271,29 @@ impl LogWatcher {
             self.current_state = GameState::Loading {
                 world_name: None,
                 is_multiplayer: true,
+                sub_stage: None,
             };
             return true;
+        }
+
+        // Check for loading stages
+        if let Some(caps) = self.patterns.loading_stage.captures(line) {
+            if let Some(stage) = caps.get(2) {
+                let stage_name = stage.as_str();
+                debug!("Detected: Loading stage '{}'", stage_name);
+                
+                // Only update if we are already in loading state or about to be
+                if let GameState::Loading { world_name, is_multiplayer, .. } = &self.current_state {
+                    // Convert CamelCase to Spaced String (e.g. BootingServer -> Booting Server)
+                    let formatted_stage = self.format_stage_name(stage_name);
+                    self.current_state = GameState::Loading {
+                        world_name: world_name.clone(),
+                        is_multiplayer: *is_multiplayer,
+                        sub_stage: Some(format!("Loading: {}", formatted_stage)),
+                    };
+                    return true;
+                }
+            }
         }
 
         // Check for server address
@@ -350,6 +375,18 @@ impl LogWatcher {
 
         false
     }
+
+    /// Helper to format stage names (e.g. "BootingServer" -> "Booting Server")
+    fn format_stage_name(&self, stage: &str) -> String {
+        let mut result = String::new();
+        for (i, c) in stage.chars().enumerate() {
+            if i > 0 && c.is_uppercase() {
+                result.push(' ');
+            }
+            result.push(c);
+        }
+        result
+    }
 }
 
 impl Default for LogWatcher {
@@ -395,5 +432,31 @@ mod tests {
         let line = "2026-01-25 11:06:22.6288|INFO|HytaleClient.Application.Program|Changing from Stage Startup to MainMenu";
         assert!(watcher.parse_line(line));
         assert!(matches!(watcher.state(), GameState::MainMenu));
+    }
+
+    #[test]
+    fn test_loading_stages() {
+        let mut watcher = LogWatcher::new();
+        
+        // First simulate entering loading state
+        let connect_line = r#"2026-01-25 11:16:40.2349|INFO|HytaleClient.Application.AppStartup|Connecting to singleplayer world "TestWorld"..."#;
+        assert!(watcher.parse_line(connect_line));
+        
+        if let GameState::Loading { world_name, sub_stage, .. } = watcher.state() {
+            assert_eq!(world_name.as_deref(), Some("TestWorld"));
+            assert!(sub_stage.is_none());
+        } else {
+            panic!("State should be Loading");
+        }
+
+        // Test detailed stage update
+        let stage_line = "2026-01-25 11:16:40.5987|INFO|HytaleClient.Application.AppMainMenu|Changing from loading stage Initial to BootingServer";
+        assert!(watcher.parse_line(stage_line));
+
+        if let GameState::Loading { sub_stage, .. } = watcher.state() {
+            assert_eq!(sub_stage.as_deref(), Some("Loading: Booting Server"));
+        } else {
+            panic!("State should be Loading");
+        }
     }
 }

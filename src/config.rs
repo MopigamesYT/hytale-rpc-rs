@@ -86,6 +86,7 @@ pub enum GameState {
     Loading {
         world_name: Option<String>,
         is_multiplayer: bool,
+        sub_stage: Option<String>,
     },
     /// Playing singleplayer
     Singleplayer { world_name: String },
@@ -110,7 +111,16 @@ impl GameState {
         match self {
             GameState::Launcher => "In Launcher",
             GameState::MainMenu => "In Main Menu",
-            GameState::Loading { is_multiplayer, .. } => {
+            GameState::Loading { is_multiplayer, sub_stage, .. } => {
+                if let Some(stage) = sub_stage {
+                    return stage; // Returns &String as &str, lifetime issue? No, wait.
+                    // details returns &str (static lifetime implied or match lifetime). 
+                    // String is owned by the struct.
+                    // We need to return Cow or just String. 
+                    // But the signature is `&self -> &str`. This implies returning a reference to something in self or static.
+                    // `sub_stage` is Option<String>. `sub_stage.as_str()` works.
+                }
+                
                 if *is_multiplayer {
                     "Joining Server"
                 } else {
@@ -128,10 +138,20 @@ impl GameState {
         match self {
             GameState::Launcher => "Ready to Play".to_string(),
             GameState::MainMenu => "Idle".to_string(),
-            GameState::Loading { world_name, .. } => world_name
-                .as_ref()
-                .map(|n| n.clone())
-                .unwrap_or_else(|| "...".to_string()),
+            GameState::Loading { world_name, sub_stage, .. } => {
+                 if let Some(_) = sub_stage {
+                     // If we have a sub_stage in details ("Loading..."), put world name here
+                     world_name
+                        .as_ref()
+                        .map(|n| n.clone())
+                        .unwrap_or_else(|| "Please wait...".to_string())
+                 } else {
+                     world_name
+                        .as_ref()
+                        .map(|n| n.clone())
+                        .unwrap_or_else(|| "...".to_string())
+                 }
+            },
             GameState::Singleplayer { world_name } => format!("World: {}", world_name),
             GameState::Multiplayer {
                 server_address,
